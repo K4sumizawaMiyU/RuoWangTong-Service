@@ -9,6 +9,16 @@ const generateToken = (user) => {
     return token;
 };
 
+const resetToken = (phone) => {
+    const token = jwt.sign(
+        { phone: phone, purpose: 'reset_password' },
+        process.env.JWT_RESET_SECRET,
+        { expiresIn: '5m' }   // 5 分钟
+    )
+    return token;
+};
+
 module.exports = {
-    generateToken
+    generateToken,
+    resetToken,
 };

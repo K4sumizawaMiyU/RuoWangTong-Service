@@ -17,7 +17,10 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING(11),
         allowNull: false,
         unique: true,
-        validate: { isNumeric: true, len: [11, 11] },
+        validate: {
+            isNumeric: { msg: '手机号必须为数字' },
+            len: [11, 11]
+        }
     },
     password: {
         type: DataTypes.STRING(255),
@@ -35,21 +38,14 @@ const User = sequelize.define('User', {
         type: DataTypes.DATE,
         allowNull: true,
     },
-    createdAt: {
-        type: DataTypes.DATE,
-        allowNull: true,
-        field: 'createdAt',
-    },
     updatedAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'updatedAt',
     },
-    deletedAt: {
+    createdAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'deletedAt',
-    },
+    }
 }, {
     tableName: 'users',
     timestamps: false,
