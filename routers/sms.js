@@ -44,11 +44,10 @@ router.post('/verifyCode', async (req, res) => {
             const token = resetToken(phone);
 
             const responseData = {
-                message: result.message,
-                token: token
+                resetToken: token
             };
 
-            success(res, responseData);
+            success(res, result.message, responseData);
         } else {
             fail(res, new CustomError(result.message));
         }

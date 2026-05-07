@@ -49,12 +49,6 @@ router.post('/register', async (req, res) => {
             name: name || null,
             createdAt: new Date(),
         });
-        await Profile.create({
-            user_id: newUser.id,
-            eid: eid,
-            name: name || null,
-            createdAt: new Date(),
-        });
         success(res, "注册成功");
     } catch (err) {
         fail(res, err);
@@ -69,12 +63,12 @@ router.post('/login', async (req, res) => {
                 eid: eid,
             }
         });
-        const isValid = await user.validatePassword(password);
         if (!user) {
             console.log(`登录失败：账号 ${eid} 不存在`);
             fail(res, new CustomError("账号或密码错误"));
             return;
         }
+        const isValid = await user.validatePassword(password);
         if (!isValid) {
             console.log(
                 `登录失败：账号 ${eid} 密码错误
@@ -87,9 +81,15 @@ router.post('/login', async (req, res) => {
         user.lastLoginAt = new Date();
         await user.save();
         const token = generateToken(user);
+
         await redisClient.set(`token:${user.id}`, token, 'EX', 7 * 24 * 60 * 60);
-        const result = { token: token };
+
+        const result = {
+            token: token
+        };
+
         success(res, "登录成功", result);
+        console.log(`${new Date()}_用户:${user.id} 登陆成功`);
     } catch (err) {
         fail(res, new CustomError("账号或密码错误"));
     }
@@ -120,7 +120,7 @@ router.put('/change-password', authToken, async (req, res) => {
         user.updatedAt = new Date();
         await user.save();
         success(res, "密码修改成功");
-        console.log(`用户 ${userId} 修改了密码`);
+        console.log(`${new Date()}_用户:${user.id} 修改了密码`);
         const deleted = await redisClient.del(`token:${userId}`);
     } catch (err) {
         fail(res, err);
@@ -129,10 +129,10 @@ router.put('/change-password', authToken, async (req, res) => {
 
 router.put('/account_found', resetPwdToken, async (req, res) => {
     try {
-        const { phone, newPwd } = req.body;
+        const { newPwd } = req.body;
         const user = await User.findOne({
             where: {
-                phone: phone,
+                phone: req.phone,
             }
         });
         if (!user) {
@@ -143,7 +143,7 @@ router.put('/account_found', resetPwdToken, async (req, res) => {
         user.updatedAt = new Date();
         await user.save();
         success(res, "密码修改成功", { eid: user.eid });
-        console.log(`用户 ${user.id} 通过手机号 ${phone} 找回了账号并修改了密码`);
+        console.log(`${new Date()}_用户:${user.eid} 通过手机号${req.phone} 找回了账号并修改了密码`);
     } catch (err) {
         fail(res, err);
     }
@@ -158,6 +158,7 @@ router.post('/logout', authToken, async (req, res) => {
             return success(res, "您已经登出，无需重复操作");
         }
         success(res, "退出登录成功");
+        console.log(`${new Date()}_用户:${userId} 退出登录`);
     } catch (err) {
         fail(res, err);
     }
