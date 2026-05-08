@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../database/db.js');
 
-const SyncRecord = sequelize.define('SyncRecord', {
+const SyncLog = sequelize.define('SyncRecord', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     clientId: { type: DataTypes.UUID, allowNull: false },
     tableName: { type: DataTypes.STRING(64), allowNull: false },
@@ -18,4 +18,4 @@ const SyncRecord = sequelize.define('SyncRecord', {
     indexes: [{ fields: ['clientId', 'startedAt'] }]
 });
 
-module.exports = SyncRecord;
+module.exports = SyncLog;

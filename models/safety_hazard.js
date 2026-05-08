@@ -1,5 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../database/db.js');
+const ChangeLog = require('./change_log');
+
 const SafetyHazard = sequelize.define('SafetyHazard', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     clientId: { type: DataTypes.UUID },
@@ -18,7 +20,8 @@ const SafetyHazard = sequelize.define('SafetyHazard', {
 }, {
     tableName: 'safety_hazards',
     timestamps: true,
-    indexes: [{ fields: ['rectificationStatus'] }]
+    indexes: [{ fields: ['rectificationStatus'] }],
+    paranoid: true
 });
 
 module.exports = SafetyHazard; 

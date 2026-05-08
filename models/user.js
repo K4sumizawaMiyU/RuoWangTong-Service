@@ -34,6 +34,11 @@ const User = sequelize.define('User', {
         type: DataTypes.ENUM('supervisor', 'worker', 'inspector'),
         defaultValue: 'worker',
     },
+    avatar: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        comment: '头像路径或URL'
+    },
     lastLoginAt: {
         type: DataTypes.DATE,
         allowNull: true,

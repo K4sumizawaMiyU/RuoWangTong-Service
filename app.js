@@ -16,31 +16,21 @@ const uploadRouter = require('./routers/img_upload.js');
 
 const app = express();
 
-const constructionLogRouter = require('./routers/construction_log');
-const equipmentLogRouter = require('./routers/equipment_log');
-const inspectionRecordRouter = require('./routers/inspection_record');
-const materialAcceptanceRouter = require('./routers/material_acceptance');
-const qualityAcceptanceRouter = require('./routers/quality_acceptance');
-const safetyHazardRouter = require('./routers/safety_hazard');
 const syncLogRouter = require('./routers/sync_log');
-
+const changeLogRoutes = require('./routers/change_log');
+const syncRouter = require('./routers/sync.js')
 
 app.use(cor());
 
 app.use(express.json());
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
+app.use('/api/change-logs', changeLogRoutes);
 app.use('/api', require('./routers/users.js'));
 app.use('/api', require('./routers/sms.js'));
 app.use('/api', require('./routers/img_upload.js'))
-app.use('/api/construction-log', constructionLogRouter);
-app.use('/api/equipment-log', equipmentLogRouter);
-app.use('/api/inspection', inspectionRecordRouter);
-app.use('/api/material-acceptance', materialAcceptanceRouter);
-app.use('/api/quality-acceptance', qualityAcceptanceRouter);
-app.use('/api/safety-hazard', safetyHazardRouter);
 app.use('/api/sync-log', syncLogRouter);
+app.use('/api/sync', syncLogRouter)
 const PORT = 3000;
 
 initDB().then(() => {

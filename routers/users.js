@@ -2,12 +2,52 @@ const express = require('express');
 const router = express.Router();
 const redisClient = require('../config/redis.js');
 const User = require('../models/user.js');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const { Op } = require('sequelize');
 const { CustomError, success, fail } = require('../utils/response.js');
 const { generateToken } = require('../utils/jwt.js');
 const { authToken, resetPwdToken } = require('../utils/auth.js');
 const bcrypt = require('bcryptjs/dist/bcrypt.js');
+
+const uploadDir = path.join(__dirname, '../uploads/avatars');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const uniqueName = `${req.userId}${ext}`;
+        cb(null, uniqueName);
+    }
+});
+
+const fileFilter = (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('只允许上传图片格式 (jpeg, png, jpg, gif, webp)'), false);
+    }
+};
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024,
+    },
+    fileFilter: fileFilter
+});
+
+
 //用户注册/用户登录/密码更改/退出登录/用户资料查询接口
 
 router.post('/register', async (req, res) => {
@@ -168,17 +208,69 @@ router.get('/myInfo', authToken, async (req, res) => {
     try {
         const userId = req.userId;
         const user = await User.findByPk(userId, {
-            attributes: ['eid', 'phone', 'name', 'role']
+            attributes: ['eid', 'name', 'avatar']
         });
         if (!user) {
             fail(res, new CustomError("用户不存在"));
             return;
         }
+        let avatarUrl = null;
+        if (user.avatar) {
+            if (user.avatar.startsWith('http')) {
+                avatarUrl = user.avatar;
+            } else {
+                const baseUrl = process.env.BASE_URL;
+                avatarUrl = `${baseUrl}/uploads/avatars/${user.avatar}`;
+            }
+        }
+
+        const userData = {
+            eid: user.eid,
+            name: user.name,
+            avatar: user.avatar,
+        }
+
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        const crypto = require('crypto');
+        const etag = crypto.createHash('md5').update(JSON.stringify(userData)).digest('hex');
+        res.setHeader('ETag', etag);
+
         success(res, "获取用户信息成功", user);
     } catch (err) {
         fail(res, err);
     }
 });
+
+router.post('/myPhoto', authToken, upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ code: 400, message: '请上传图片文件' });
+        }
+
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const fileUrl = `${baseUrl}/uploads/avatars/${req.file.filename}`;
+
+        const user = await User.findByPk(req.userId);
+        user.avatar = fileUrl;
+        user.updatedAt = new Date();
+        user.save();
+
+        res.json({
+            code: 200,
+            message: '上传成功',
+            data: {
+                url: fileUrl,
+                filename: req.file.filename,
+                size: req.file.size,
+                mimetype: req.file.mimetype
+            }
+        });
+    } catch (error) {
+        console.error('上传失败:', error);
+        res.status(500).json({ code: 500, message: '服务器错误' });
+    }
+});
+
 
 
 module.exports = router;

@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../database/db.js');
+const ChangeLog = require('./change_log');
 
 const QualityAcceptance = sequelize.define('QualityAcceptance', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -17,6 +18,7 @@ const QualityAcceptance = sequelize.define('QualityAcceptance', {
 }, {
     tableName: 'quality_acceptances',
     timestamps: true,
+    paranoid: true
 });
 
 module.exports = QualityAcceptance;

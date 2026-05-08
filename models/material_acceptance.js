@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../database/db.js');
+const ChangeLog = require('./change_log');
 
 const MaterialAcceptance = sequelize.define('MaterialAcceptance', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -18,6 +19,7 @@ const MaterialAcceptance = sequelize.define('MaterialAcceptance', {
 }, {
     tableName: 'material_acceptances',
     timestamps: true,
+    paranoid: true
 });
 
 module.exports = MaterialAcceptance;

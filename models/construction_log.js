@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../database/db.js');;
+const sequelize = require('../database/db.js');
+const ChangeLog = require('./change_log');
 
 const ConstructionLog = sequelize.define('ConstructionLog', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -19,7 +20,7 @@ const ConstructionLog = sequelize.define('ConstructionLog', {
 }, {
     tableName: 'construction_logs',
     timestamps: true,
-    indexes: [{ fields: ['logDate'] }]
+    indexes: [{ fields: ['logDate'] }],
+    paranoid: true
 });
-
 module.exports = ConstructionLog;
