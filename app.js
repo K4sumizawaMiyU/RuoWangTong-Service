@@ -29,17 +29,17 @@ app.use('/api/change-logs', changeLogRoutes);
 app.use('/api', require('./routers/users.js'));
 app.use('/api', require('./routers/sms.js'));
 app.use('/api', require('./routers/img_upload.js'))
-app.use('/api/sync-log', syncLogRouter);
-app.use('/api/sync', syncLogRouter)
+app.use('/api/sync_logs', syncLogRouter);
+app.use('/api/sync', syncRouter)
+
 const PORT = 3000;
 
 initDB().then(() => {
-    app.listen(PORT, () => {
-        console.log(`服务在 ${PORT} 端口上成功运行。`);
+    app.listen(PORT, '0.0.0.0', () => {   // ← 添加 '0.0.0.0'
+        console.log(`服务在 ${PORT} 端口上成功运行，监听所有网络接口。`);
     });
 }).catch((err) => {
     console.error('数据库初始化失败:', err);
     process.exit(1);
 });
-
 

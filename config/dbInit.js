@@ -7,7 +7,7 @@ require('../models/quality_acceptance');
 require('../models/safety_hazard');
 require('../models/equipment_log');
 require('../models/material_acceptance');
-require('../models/sync_log');
+require('../models/sync_record.js');
 require('../models/change_log.js')
 
 const initDB = async () => {

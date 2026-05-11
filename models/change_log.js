@@ -43,6 +43,16 @@ const ChangeLog = sequelize.define('ChangeLog', {
             key: 'id'
         }
     },
+    operatorName: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        comment: '操作人姓名'
+    },
+    operatorEid: {
+        type: DataTypes.STRING(16),
+        allowNull: false,
+        comment: '操作人工号'
+    },
     createdAt: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,

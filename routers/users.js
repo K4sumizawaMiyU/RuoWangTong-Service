@@ -5,6 +5,8 @@ const User = require('../models/user.js');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const XLSX = require('xlsx');
+const files = multer({ dest: 'files/' });
 
 const { Op } = require('sequelize');
 const { CustomError, success, fail } = require('../utils/response.js');
@@ -47,51 +49,100 @@ const upload = multer({
     fileFilter: fileFilter
 });
 
+const VALID_ROLES = ['主管', '工人', '检查员'];
 
 //用户注册/用户登录/密码更改/退出登录/用户资料查询接口
 
-router.post('/register', async (req, res) => {
+router.post('/DevBunch/register', files.single('file'), async (req, res) => {
+    let workbook = null;
     try {
-        const { eid, password, phone, name } = req.body;
-        const existingUser = await User.findOne({
-            where: {
-                eid: eid,
+        if (!req.file) {
+            fail(res, new CustomError("请上传 Excel 文件"));
+            return;
+        }
+
+        const filePath = req.file.path;
+        workbook = XLSX.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet); // 列名: eid, password, phone, name, role
+
+        if (!rows || rows.length === 0) {
+            fail(res, new CustomError("表格中没有数据"));
+            return;
+        }
+
+        const results = {
+            total: rows.length,
+            success: 0,
+            failed: 0,
+            errors: []
+        };
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            let { eid, password, phone, name, role } = row;
+
+            try {
+                const eidStr = eid != null ? String(eid).trim() : '';
+                const passwordStr = password != null ? String(password).trim() : '';
+                const phoneStr = phone != null ? String(phone).trim() : '';
+                const nameStr = name != null ? String(name).trim() : '';
+
+                if (eidStr === "") throw new CustomError("账号不能为空");
+                if (passwordStr === "") throw new CustomError("密码不能为空");
+                if (phoneStr === "") throw new CustomError("手机号不能为空");
+                if (nameStr === "") throw new CustomError("姓名不能为空");
+                if (!/^\d{11}$/.test(phoneStr)) throw new CustomError("手机号必须为11位数字");
+
+                const existingUser = await User.findOne({ where: { eid: eidStr } });
+                if (existingUser) throw new CustomError("该账号已被注册");
+
+                let roleValue = undefined;
+                if (role !== undefined && role !== null && String(role).trim() !== '') {
+                    const roleStr = String(role).trim();
+                    if (!VALID_ROLES.includes(roleStr)) {
+                        throw new CustomError(`角色值无效，必须是 ${VALID_ROLES.join('、')} 之一`);
+                    }
+                    roleValue = roleStr;
+                }
+
+                await User.create({
+                    eid: eidStr,
+                    password: passwordStr,
+                    phone: phoneStr,
+                    name: nameStr,
+                    ...(roleValue !== undefined && { role: roleValue })
+                });
+                console.log(`注册成功！：用户名：${name} 密码：${password}`)
+                results.success++;
+            } catch (err) {
+                results.failed++;
+                results.errors.push({
+                    row: i + 1,
+                    data: row,
+                    message: err.message || String(err)
+                });
             }
-        });
-        if (existingUser) {
-            fail(res, new CustomError("该账号已被注册"));
-            return;
         }
-        if (phone.trim() === "") {
-            fail(res, new CustomError("手机号不能为空"));
-            return;
+
+        if (results.failed === 0) {
+            success(res, `批量注册成功，共 ${results.success} 条`);
+        } else {
+            fail(res, new CustomError(
+                `批量注册完成，成功 ${results.success} 条，失败 ${results.failed} 条`,
+                results.errors
+            ));
         }
-        if (password.trim() === "") {
-            fail(res, new CustomError("密码不能为空"));
-            return;
-        }
-        if (eid.trim() === "") {
-            fail(res, new CustomError("账号不能为空"));
-            return;
-        }
-        if (name.trim() === "") {
-            fail(res, new CustomError("姓名不能为空"));
-            return;
-        }
-        if (!/^\d{11}$/.test(phone)) {
-            fail(res, new CustomError("手机号必须为11位数字"));
-            return;
-        }
-        const newUser = await User.create({
-            eid: eid,
-            password: password,
-            phone: phone,
-            name: name || null,
-            createdAt: new Date(),
-        });
-        success(res, "注册成功");
+
     } catch (err) {
         fail(res, err);
+    } finally {
+        if (req.file && req.file.path) {
+            fs.unlink(req.file.path, (unlinkErr) => {
+                if (unlinkErr) console.error("删除临时文件失败:", unlinkErr);
+            });
+        }
     }
 });
 
@@ -129,7 +180,7 @@ router.post('/login', async (req, res) => {
         };
 
         success(res, "登录成功", result);
-        console.log(`${new Date()}_用户:${user.id} 登陆成功`);
+        console.log(`${new Date()}: [用户:${user.eid} 登陆成功]`);
     } catch (err) {
         fail(res, new CustomError("账号或密码错误"));
     }
@@ -157,10 +208,9 @@ router.put('/change-password', authToken, async (req, res) => {
             return;
         }
         user.password = newPassword;
-        user.updatedAt = new Date();
         await user.save();
         success(res, "密码修改成功");
-        console.log(`${new Date()}_用户:${user.id} 修改了密码`);
+        console.log(`${new Date()}: [用户:${user.eid} 修改了密码]`);
         const deleted = await redisClient.del(`token:${userId}`);
     } catch (err) {
         fail(res, err);
@@ -180,10 +230,9 @@ router.put('/account_found', resetPwdToken, async (req, res) => {
             return;
         }
         user.password = newPwd;
-        user.updatedAt = new Date();
         await user.save();
         success(res, "密码修改成功", { eid: user.eid });
-        console.log(`${new Date()}_用户:${user.eid} 通过手机号${req.phone} 找回了账号并修改了密码`);
+        console.log(`${new Date()}: [用户:${user.eid} 通过手机号${req.phone} 找回了账号并修改了密码]`);
     } catch (err) {
         fail(res, err);
     }
@@ -192,13 +241,14 @@ router.put('/account_found', resetPwdToken, async (req, res) => {
 router.post('/logout', authToken, async (req, res) => {
     try {
         const userId = req.userId;
+        const user = await User.findByPk(userId);
         const deleted = await redisClient.del(`token:${userId}`);
         if (deleted === 0) {
             // 已登出或 token 不存在，仍然返回成功，但提示信息不同
             return success(res, "您已经登出，无需重复操作");
         }
         success(res, "退出登录成功");
-        console.log(`${new Date()}_用户:${userId} 退出登录`);
+        console.log(`${new Date()}: [用户:${user.eid} 退出登录]`);
     } catch (err) {
         fail(res, err);
     }
@@ -208,7 +258,7 @@ router.get('/myInfo', authToken, async (req, res) => {
     try {
         const userId = req.userId;
         const user = await User.findByPk(userId, {
-            attributes: ['eid', 'name', 'avatar']
+            attributes: ['id', 'eid', 'name', 'avatar', 'role', 'role_weight']
         });
         if (!user) {
             fail(res, new CustomError("用户不存在"));
@@ -223,18 +273,7 @@ router.get('/myInfo', authToken, async (req, res) => {
                 avatarUrl = `${baseUrl}/uploads/avatars/${user.avatar}`;
             }
         }
-
-        const userData = {
-            eid: user.eid,
-            name: user.name,
-            avatar: user.avatar,
-        }
-
-        res.setHeader('Cache-Control', 'private, max-age=86400');
-        const crypto = require('crypto');
-        const etag = crypto.createHash('md5').update(JSON.stringify(userData)).digest('hex');
-        res.setHeader('ETag', etag);
-
+        console.log(`${new Date()}: [用户: ${user.eid} 请求访问个人资料]`)
         success(res, "获取用户信息成功", user);
     } catch (err) {
         fail(res, err);
@@ -252,7 +291,6 @@ router.post('/myPhoto', authToken, upload.single('image'), async (req, res) => {
 
         const user = await User.findByPk(req.userId);
         user.avatar = fileUrl;
-        user.updatedAt = new Date();
         user.save();
 
         res.json({

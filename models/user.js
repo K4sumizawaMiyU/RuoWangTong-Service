@@ -31,8 +31,8 @@ const User = sequelize.define('User', {
         allowNull: true,
     },
     role: {
-        type: DataTypes.ENUM('supervisor', 'worker', 'inspector'),
-        defaultValue: 'worker',
+        type: DataTypes.ENUM('主管', '工人', '检查员'),
+        defaultValue: '工人',
     },
     avatar: {
         type: DataTypes.STRING(255),
@@ -50,26 +50,36 @@ const User = sequelize.define('User', {
     createdAt: {
         type: DataTypes.DATE,
         allowNull: true,
+    },
+    role_weight: {
+        type: DataTypes.TINYINT,
+        allowNull: false,
+        defaultValue: 1,
+        comment: '1:工人, 2:检查员, 3:主管'
     }
 }, {
     tableName: 'users',
-    timestamps: false,
+    timestamps: true,
 });
+
+User.prototype.validatePassword = async function (password) {
+    return await bcrypt.compare(password, this.password);
+};
 
 User.beforeCreate(async (user) => {
     if (user.password) {
         user.password = await bcrypt.hash(user.password, 12);
     }
+    user.role_weight = { '工人': 1, '检查员': 2, '主管': 3 }[user.role] || 1;
 });
 
 User.beforeUpdate(async (user) => {
     if (user.changed('password')) {
         user.password = await bcrypt.hash(user.password, 12);
     }
+    if (user.changed('role')) {
+        user.role_weight = { '工人': 1, '检查员': 2, '主管': 3 }[user.role] || 1;
+    }
 });
-
-User.prototype.validatePassword = async function (password) {
-    return await bcrypt.compare(password, this.password);
-};
 
 module.exports = User;

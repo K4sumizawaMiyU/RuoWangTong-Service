@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const { CustomError, success, fail } = require('../utils/response.js');
-const SyncLog = require('../models/sync_log');
+const SyncLog = require('../models/sync_record');
 const { authToken } = require('../utils/auth.js');
 
 /**
@@ -52,10 +52,6 @@ router.get('/', authToken, async (req, res) => {
     }
 });
 
-/**
- * 获取某个客户端的所有同步记录
- * GET /api/sync-log/client/:clientId
- */
 router.get('/client/:clientId', authToken, async (req, res) => {
     try {
         const { clientId } = req.params;
