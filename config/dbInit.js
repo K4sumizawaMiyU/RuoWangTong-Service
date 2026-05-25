@@ -9,6 +9,8 @@ require('../models/equipment_log');
 require('../models/material_acceptance');
 require('../models/sync_record.js');
 require('../models/change_log.js')
+require('../models/project_inspectors.js')
+require('../models/projects.js')
 
 const initDB = async () => {
     try {

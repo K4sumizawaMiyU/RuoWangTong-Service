@@ -13,13 +13,14 @@ const { CustomError, success, fail } = require('../utils/response.js');
 const { generateToken } = require('../utils/jwt.js');
 const { authToken, resetPwdToken } = require('../utils/auth.js');
 const bcrypt = require('bcryptjs/dist/bcrypt.js');
+const Project = require('../models/projects');
+const ProjectInspector = require('../models/project_inspectors');
+
 
 const uploadDir = path.join(__dirname, '../uploads/avatars');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
-
-
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -51,7 +52,6 @@ const upload = multer({
 
 const VALID_ROLES = ['主管', '工人', '检查员'];
 
-//用户注册/用户登录/密码更改/退出登录/用户资料查询接口
 
 router.post('/DevBunch/register', files.single('file'), async (req, res) => {
     let workbook = null;
@@ -65,7 +65,7 @@ router.post('/DevBunch/register', files.single('file'), async (req, res) => {
         workbook = XLSX.readFile(filePath);
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet); // 列名: eid, password, phone, name, role
+        const rows = XLSX.utils.sheet_to_json(sheet);
 
         if (!rows || rows.length === 0) {
             fail(res, new CustomError("表格中没有数据"));
@@ -186,7 +186,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-router.put('/change-password', authToken, async (req, res) => {
+router.put('/change_password', authToken, async (req, res) => {
     try {
         const userId = req.userId;
         const { oldPassword, newPassword } = req.body;
@@ -244,7 +244,6 @@ router.post('/logout', authToken, async (req, res) => {
         const user = await User.findByPk(userId);
         const deleted = await redisClient.del(`token:${userId}`);
         if (deleted === 0) {
-            // 已登出或 token 不存在，仍然返回成功，但提示信息不同
             return success(res, "您已经登出，无需重复操作");
         }
         success(res, "退出登录成功");
@@ -258,24 +257,41 @@ router.get('/myInfo', authToken, async (req, res) => {
     try {
         const userId = req.userId;
         const user = await User.findByPk(userId, {
-            attributes: ['id', 'eid', 'name', 'avatar', 'role', 'role_weight']
+            attributes: ['id', 'eid', 'name', 'avatar', 'role', 'role_weight', 'project_id']
         });
         if (!user) {
-            fail(res, new CustomError("用户不存在"));
-            return;
+            return fail(res, new CustomError("用户不存在"));
         }
-        let avatarUrl = null;
-        if (user.avatar) {
-            if (user.avatar.startsWith('http')) {
-                avatarUrl = user.avatar;
+
+        const result = {
+            id: user.id,
+            eid: user.eid,
+            name: user.name,
+            role: user.role,
+            role_weight: user.role_weight,
+            avatar: user.avatar
+        };
+        if (user.role === '工人' && user.project_id) {
+            const project = await Project.findByPk(user.project_id, {
+                attributes: ['id', 'code', 'name']
+            });
+            if (project) {
+                result.project = {
+                    id: project.id,
+                    code: project.code,
+                    name: project.name,
+                };
             } else {
-                const baseUrl = process.env.BASE_URL;
-                avatarUrl = `${baseUrl}/uploads/avatars/${user.avatar}`;
+                result.project = null;
             }
+        } else {
+            result.project = null;
         }
-        console.log(`${new Date()}: [用户: ${user.eid} 请求访问个人资料]`)
-        success(res, "获取用户信息成功", user);
+
+        console.log(`${new Date()}: [用户: ${user.eid} 请求访问个人资料]`);
+        success(res, "获取用户信息成功", result);
     } catch (err) {
+        console.error(err);
         fail(res, err);
     }
 });
@@ -285,9 +301,7 @@ router.post('/myPhoto', authToken, upload.single('image'), async (req, res) => {
         if (!req.file) {
             return res.status(400).json({ code: 400, message: '请上传图片文件' });
         }
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const fileUrl = `${baseUrl}/uploads/avatars/${req.file.filename}`;
+        const fileUrl = `/uploads/avatars/${req.file.filename}`;
 
         const user = await User.findByPk(req.userId);
         user.avatar = fileUrl;
@@ -308,7 +322,5 @@ router.post('/myPhoto', authToken, upload.single('image'), async (req, res) => {
         res.status(500).json({ code: 500, message: '服务器错误' });
     }
 });
-
-
 
 module.exports = router;

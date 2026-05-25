@@ -29,8 +29,10 @@ app.use('/api/change-logs', changeLogRoutes);
 app.use('/api', require('./routers/users.js'));
 app.use('/api', require('./routers/sms.js'));
 app.use('/api', require('./routers/img_upload.js'))
+app.use('/api/projects', require('./routers/project.js'))
 app.use('/api/sync_logs', syncLogRouter);
 app.use('/api/sync', syncRouter)
+app.use('', require('./routers/ping.js'))
 
 const PORT = 3000;
 

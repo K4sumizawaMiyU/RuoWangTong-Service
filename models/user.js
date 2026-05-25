@@ -56,6 +56,11 @@ const User = sequelize.define('User', {
         allowNull: false,
         defaultValue: 1,
         comment: '1:工人, 2:检查员, 3:主管'
+    },
+    project_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        comment: '施工项目ID'
     }
 }, {
     tableName: 'users',

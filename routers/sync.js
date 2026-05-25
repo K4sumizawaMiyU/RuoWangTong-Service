@@ -1,11 +1,12 @@
-
 const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const { authToken } = require('../utils/auth');
 const { success, fail, CustomError } = require('../utils/response');
 const SyncRecord = require('../models/sync_record');
-const User = require('../models/user.js');
+const User = require('../models/user');
+const Project = require('../models/projects');
+const ProjectInspector = require('../models/project_inspectors');
 
 const ConstructionLog = require('../models/construction_log');
 const EquipmentLog = require('../models/equipment_log');
@@ -35,7 +36,37 @@ function isClientWinner(clientRecord, serverRecord) {
     return clientRecord.localUpdatedAt > serverRecord.localUpdatedAt;
 }
 
-// 批量多表同步接口
+function sanitizeRecordByRole(record, userRole, userId) {
+    const allowedFields = { ...record };
+    if (userRole !== '检查员' && userRole !== '主管') {
+        delete allowedFields.reviewStatus;
+        delete allowedFields.reviewerId;
+        delete allowedFields.reviewTime;
+        delete allowedFields.reviewComment;
+    } else if (userRole === '检查员') {
+        allowedFields.reviewerId = userId;
+        allowedFields.reviewTime = new Date();
+    }
+    return allowedFields;
+}
+
+async function getAccessibleProjectIds(userId, role) {
+    if (role === '主管') {
+        const projects = await Project.findAll({
+            where: { supervisor_id: userId, isDeleted: false },
+            attributes: ['id']
+        });
+        return projects.map(p => p.id);
+    } else if (role === '检查员') {
+        const assignments = await ProjectInspector.findAll({
+            where: { inspectorId: userId },
+            attributes: ['projectId']
+        });
+        return assignments.map(a => a.projectId);
+    }
+    return [];
+}
+
 router.post('/', authToken, async (req, res) => {
     const startTime = new Date();
     const clientIp = getClientIp(req);
@@ -51,6 +82,8 @@ router.post('/', authToken, async (req, res) => {
         }
 
         const userId = req.userId;
+        const currentUser = await User.findByPk(userId, { attributes: ['role'] });
+        const userRole = currentUser.role;
         const results = {};
 
         for (const [tableName, records] of Object.entries(tablesData)) {
@@ -69,7 +102,9 @@ router.post('/', authToken, async (req, res) => {
 
             const tableResults = [];
             for (const clientRecord of records) {
-                if (clientRecord.userId !== userId) {
+                // 权限校验：如果是安全隐患表且当前用户是整改责任人，则允许绕过 userId 校验
+                const isSafetyHazardWithResponsible = (tableName === 'safetyHazard' && clientRecord.responsiblePerson === user.eid);
+                if (clientRecord.userId !== userId && !isSafetyHazardWithResponsible) {
                     tableResults.push({ clientId: clientRecord.clientId, status: 'rejected', reason: 'userId mismatch' });
                     continue;
                 }
@@ -77,15 +112,20 @@ router.post('/', authToken, async (req, res) => {
                     tableResults.push({ clientId: clientRecord.clientId || 'unknown', status: 'failed', reason: 'missing clientId' });
                     continue;
                 }
-                const existing = await Model.findOne({ where: { clientId: clientRecord.clientId } });
+                const cleanedRecord = sanitizeRecordByRole(clientRecord, userRole, userId);
+                const existing = await Model.findOne({ where: { clientId: cleanedRecord.clientId } });
+                //冲突检测与时间戳决定冲突解决
                 if (!existing) {
-                    await Model.create(clientRecord);
-                    tableResults.push({ clientId: clientRecord.clientId, status: 'created' });
-                } else if (isClientWinner(clientRecord, existing)) {
-                    await existing.update(clientRecord);
-                    tableResults.push({ clientId: clientRecord.clientId, status: 'updated', conflictNote: '用户端胜出' });
+                    if (userRole === '工人' && !cleanedRecord.reviewStatus) {
+                        cleanedRecord.reviewStatus = 'pending';
+                    }
+                    await Model.create(cleanedRecord);
+                    tableResults.push({ clientId: cleanedRecord.clientId, status: 'created' });
+                } else if (isClientWinner(cleanedRecord, existing)) {
+                    await existing.update(cleanedRecord);
+                    tableResults.push({ clientId: cleanedRecord.clientId, status: 'updated', conflictNote: '用户端胜出' });
                 } else {
-                    tableResults.push({ clientId: clientRecord.clientId, status: 'ignored', conflictNote: '服务端胜出' });
+                    tableResults.push({ clientId: cleanedRecord.clientId, status: 'ignored', conflictNote: '服务端胜出' });
                 }
             }
             results[tableName] = tableResults;
@@ -121,7 +161,7 @@ router.post('/:tableName', authToken, async (req, res) => {
     const startTime = new Date();
     const clientIp = getClientIp(req);
     const user = await User.findByPk(req.userId, {
-        attributes: ['id', 'eid', 'name']
+        attributes: ['id', 'eid', 'name', 'role']
     });
     let syncError = null;
     let syncResult = 'success';
@@ -148,16 +188,20 @@ router.post('/:tableName', authToken, async (req, res) => {
             return fail(res, new CustomError(syncError, 400));
         }
 
-        const existing = await Model.findOne({ where: { clientId: clientRecord.clientId } });
+        const cleanedRecord = sanitizeRecordByRole(clientRecord, user.role, userId);
+        const existing = await Model.findOne({ where: { clientId: cleanedRecord.clientId } });
         let result;
         if (!existing) {
-            await Model.create(clientRecord);
-            result = { clientId: clientRecord.clientId, status: 'created' };
-        } else if (isClientWinner(clientRecord, existing)) {
-            await existing.update(clientRecord);
-            result = { clientId: clientRecord.clientId, status: 'updated', conflictNote: '用户端胜出' };
+            if (user.role === '工人' && !cleanedRecord.reviewStatus) {
+                cleanedRecord.reviewStatus = 'pending';
+            }
+            await Model.create(cleanedRecord);
+            result = { clientId: cleanedRecord.clientId, status: 'created' };
+        } else if (isClientWinner(cleanedRecord, existing)) {
+            await existing.update(cleanedRecord);
+            result = { clientId: cleanedRecord.clientId, status: 'updated', conflictNote: '用户端胜出' };
         } else {
-            result = { clientId: clientRecord.clientId, status: 'ignored', conflictNote: '服务端胜出' };
+            result = { clientId: cleanedRecord.clientId, status: 'ignored', conflictNote: '服务端胜出' };
             syncResult = 'partial';
         }
         success(res, '单条同步完成', { result });
@@ -190,7 +234,9 @@ router.get('/all', authToken, async (req, res) => {
         const userId = req.userId;
         const sinceTs = parseInt(since);
 
-        // 定义要拉取的表（key：返回给前端使用的名称，value：对应的Model）
+        const user = await User.findByPk(userId, { attributes: ['id', 'role', 'eid'] });
+        if (!user) return fail(res, new CustomError('用户不存在'));
+
         const tables = [
             { name: 'constructionLog', model: ConstructionLog },
             { name: 'equipmentLog', model: EquipmentLog },
@@ -200,18 +246,63 @@ router.get('/all', authToken, async (req, res) => {
             { name: 'inspectionRecord', model: InspectionRecord }
         ];
 
+        let accessibleProjectIds = [];
+        if (user.role === '主管' || user.role === '检查员') {
+            accessibleProjectIds = await getAccessibleProjectIds(userId, user.role);
+        }
+
         const result = {};
 
         for (const { name, model } of tables) {
-            const where = { userId, isDeleted: false };
+            let where = { isDeleted: false };
             if (sinceTs > 0) {
                 where.localUpdatedAt = { [Op.gt]: sinceTs };
             }
+
+            if (user.role === '工人') {
+                if (name === 'safetyHazard') {
+                    where[Op.or] = [
+                        { userId: userId },
+                        { responsiblePerson: user.eid }
+                    ];
+                } else {
+                    where.userId = userId;
+                }
+            } else if (user.role === '主管' || user.role === '检查员') {
+                if (accessibleProjectIds.length === 0) {
+                    result[name] = [];
+                    continue;
+                }
+                where.projectId = { [Op.in]: accessibleProjectIds };
+            } else {
+                result[name] = [];
+                continue;
+            }
+
             const records = await model.findAll({
                 where,
                 order: [['localUpdatedAt', 'ASC']]
             });
             result[name] = records;
+        }
+
+        if (user.role === '主管' || user.role === '检查员') {
+            const projects = await Project.findAll({
+                where: {
+                    id: { [Op.in]: accessibleProjectIds },
+                    isDeleted: false,
+                    status: '进行中'   // 只返回进行中的项目
+                },
+                attributes: ['id', 'code', 'name', 'supervisor_id']
+            });
+            result.projects = projects;
+        }
+
+        if (user.role === '检查员') {
+            result.projectInspectors = await ProjectInspector.findAll({
+                where: { inspectorId: userId },
+                attributes: ['id', 'projectId', 'inspectorId', 'assignedBy', 'assignedAt']
+            });
         }
 
         success(res, '批量拉取成功', result);
@@ -221,19 +312,41 @@ router.get('/all', authToken, async (req, res) => {
     }
 });
 
+// 单表拉取（支持角色感知，区分不同表）
 router.get('/:tableName', authToken, async (req, res) => {
     try {
         const { tableName } = req.params;
         const { since = 0, limit = 500 } = req.query;
-
         const Model = modelMap[tableName];
         if (!Model) return fail(res, new CustomError(`未知的表名: ${tableName}`));
 
         const userId = req.userId;
-        const where = { userId, isDeleted: false };
+        const user = await User.findByPk(userId, { attributes: ['role', 'eid'] });
+        if (!user) return fail(res, new CustomError('用户不存在'));
+
+        let where = { isDeleted: false };
         const sinceTs = parseInt(since);
         if (sinceTs > 0) {
             where.localUpdatedAt = { [Op.gt]: sinceTs };
+        }
+
+        if (user.role === '工人') {
+            if (tableName === 'safetyHazard') {
+                where[Op.or] = [
+                    { userId: userId },
+                    { responsiblePerson: user.eid }
+                ];
+            } else {
+                where.userId = userId;
+            }
+        } else if (user.role === '主管' || user.role === '检查员') {
+            let accessibleProjectIds = await getAccessibleProjectIds(userId, user.role);
+            if (accessibleProjectIds.length === 0) {
+                return success(res, '拉取成功', []);
+            }
+            where.projectId = { [Op.in]: accessibleProjectIds };
+        } else {
+            return success(res, '拉取成功', []);
         }
 
         const records = await Model.findAll({
@@ -248,6 +361,7 @@ router.get('/:tableName', authToken, async (req, res) => {
     }
 });
 
+// 拉取单条记录（仅限用户自己的）
 router.get('/:tableName/:clientId', authToken, async (req, res) => {
     try {
         const { tableName, clientId } = req.params;
@@ -265,4 +379,5 @@ router.get('/:tableName/:clientId', authToken, async (req, res) => {
         fail(res, err);
     }
 });
+
 module.exports = router;
